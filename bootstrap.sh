@@ -62,6 +62,24 @@ step_xcode_clt() {
         log "Xcode Command Line Tools: 導入済み"
         return 0
     fi
+    # まず無人で試す: この印を置くと softwareupdate のカタログに CLT が現れる（Apple の installondemand の仕組み）。
+    # ssh 越しや VM など GUI を操作できない環境でも止まらずに済む。
+    local marker=/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress label=""
+    touch "$marker"
+    # ラベルは macOS 26 で "Command Line Tools for Xcode 26.6-26.6"、古い macOS で "Command Line Tools for Xcode-14.3" の形。
+    # 実行中の macOS と同じメジャー版の最新を選び、無ければ最新を選ぶ。
+    label="$(softwareupdate -l 2>/dev/null | grep -o 'Command Line Tools for Xcode[ -][0-9][0-9.]*\(-[0-9.]*\)\{0,1\}' | sort -V \
+        | awk -v major="$(sw_vers -productVersion | cut -d. -f1)" '{ all=$0; if ($0 ~ "Xcode[ -]" major "[.]") same=$0 } END { print (same != "" ? same : all) }')"
+    if [ -n "$label" ]; then
+        log "Xcode Command Line Tools を softwareupdate で導入します: ${label}（sudo のパスワードを求められることがあります）"
+        sudo softwareupdate -i "$label" >/dev/null 2>&1 || warn "softwareupdate での導入に失敗しました。ダイアログで導入します"
+    fi
+    rm -f "$marker"
+    if xcode-select -p >/dev/null 2>&1; then
+        log "Xcode Command Line Tools: 導入完了"
+        return 0
+    fi
+    # 無人で入らなければダイアログで導入する
     log "Xcode Command Line Tools を導入します（ダイアログが出たら「インストール」を押してください）"
     xcode-select --install >/dev/null 2>&1 || true
     local waited=0

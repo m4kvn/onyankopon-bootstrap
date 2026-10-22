@@ -50,21 +50,17 @@ op item list --categories "SSH Key"
 
 ## tart で検証する
 
-使い捨ての macOS VM で bootstrap と onyankopon の `init.sh` を通しで試す。個人アカウントを VM に入れないよう、検証用 Vault だけを読める Service Account を使う。
+使い捨ての macOS VM（[tart](https://github.com/openai/tart)）で、この `bootstrap.sh` から onyankopon の `init.sh` までを「まっさらな Mac」として通しで試せる。
+手順とスクリプトは onyankopon（private）の `verify/` にある。要点は次のとおり。
+
+- 個人アカウントを VM に入れないよう、検証専用の共有 vault と読み取り専用の Service Account を使う（`OP_SERVICE_ACCOUNT_TOKEN`）。
+  鍵も検証用に別に作り、onyankopon の読み取り専用 deploy key として登録する。
+- ホストが VPN 接続中だと VM の NAT 通信が外へ出られないので `--net-bridged` で LAN に直結する。
+- vanilla イメージの 41 GB では `init.sh bundle` の全量に足りず、Recovery パーティションのせいで拡張もできない。追加ディスクを `/opt/homebrew` にマウントして回避する。
 
 ```sh
-brew install openai/tools/tart
-tart clone ghcr.io/cirruslabs/macos-tahoe-base:latest onyankopon-test
-tart run onyankopon-test --no-graphics &
-ssh admin@"$(tart ip onyankopon-test)"   # パスワードは admin
+~/.onyankopon/verify/tart-verify.sh up
+~/.onyankopon/verify/tart-verify.sh token        # 1Password の承認を通す
+~/.onyankopon/verify/tart-verify.sh bootstrap    # 公開 bootstrap.sh を curl | bash で流し、clone まで
+~/.onyankopon/verify/tart-verify.sh init brew rust node bundle dotfiles agents
 ```
-
-VM 内:
-
-```sh
-export OP_SERVICE_ACCOUNT_TOKEN=...   # 検証用 Vault の読み取り専用 Service Account
-export GITHUB_SSH_KEY_REF="op://<検証用 Vault ID>/<Item ID>/private_key?ssh-format=openssh"
-curl -fsSL https://raw.githubusercontent.com/m4kvn/onyankopon-bootstrap/main/bootstrap.sh | bash -s -- dotfiles agents repos
-```
-
-検証が終わったら `tart delete onyankopon-test` で破棄する。

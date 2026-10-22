@@ -111,7 +111,7 @@ step_brew() {
 step_1password() {
     if ! command -v op >/dev/null 2>&1; then
         log "1Password CLI を導入します"
-        brew install --cask 1password-cli || die "1password-cli の導入に失敗しました"
+        brew install --cask 1password-cli@beta || die "1password-cli@beta の導入に失敗しました"
     fi
     if [ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]; then
         log "Service Account を使うため 1Password.app は導入しません"

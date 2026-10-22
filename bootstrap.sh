@@ -185,7 +185,7 @@ write_ssh_key() {
     printf '\n' >> "$tmp"
     if ! ssh-keygen -y -f "$tmp" > "$pub.tmp" 2>/dev/null; then
         rm -f "$tmp" "$pub.tmp"
-        warn "取り出した内容が SSH 秘密鍵として読めません: $path（アイテムの種類（SSH Key）とフィールド名を確認してください）"
+        warn "取り出した内容が SSH 秘密鍵として読めません: ${path}（アイテムの種類（SSH Key）とフィールド名を確認してください）"
         return 1
     fi
     mv "$tmp" "$path" && mv "$pub.tmp" "$pub" && chmod 644 "$pub"

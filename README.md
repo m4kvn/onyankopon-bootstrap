@@ -19,6 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/m4kvn/onyankopon-bootstrap/main/boo
 | `GITHUB_SSH_KEY_REF` | 鍵を取り出す `op://` 参照。既定値は `bootstrap.sh` 冒頭にある |
 | `OP_VAULT_ID` | サインイン確認（`op vault get`）に使う Vault。既定は Personal |
 | `GITHUB_SSH_KEY_PATH` | 鍵の書き出し先。既定は `~/.ssh/m4kvn_github`（onyankopon の `~/.ssh/config` が指す場所） |
+| `EXTRA_SSH_KEYS` | GitHub 用以外に書き出す鍵。`<書き出し先>=<op:// 参照>` を空白区切りで並べる。既定は pixiv 用の `makun_gitlab_pixiv` と `google_compute_engine`。読めなくても止まらず警告だけ出す。`EXTRA_SSH_KEYS=""` で無効 |
 | `SIGNIN_TIMEOUT_SEC` | サインインと Xcode CLT を待つ上限秒。既定 1800 |
 
 何度実行しても同じ結果になる。済んでいる step は飛ばし、既にある鍵や `~/.ssh/config` の `Host github.com` は触らない。
@@ -29,7 +30,7 @@ curl -fsSL https://raw.githubusercontent.com/m4kvn/onyankopon-bootstrap/main/boo
 2. Homebrew
 3. 1Password CLI（`op`）。Service Account でなければ 1Password.app も
 4. 1Password へのサインインを待つ
-5. 1Password の SSH Key アイテムから GitHub 用の鍵を `~/.ssh` に 600 で書き出し、`~/.ssh/config` の `Host github.com` と `known_hosts` を整え、`ssh -T git@github.com` で疎通を確認する
+5. 1Password の SSH Key アイテムから GitHub 用の鍵（必須）と `EXTRA_SSH_KEYS` の鍵（任意）を `~/.ssh` に 600 で書き出し、`~/.ssh/config` の `Host github.com` と `known_hosts` を整え、`ssh -T git@github.com` で疎通を確認する
 6. onyankopon を `~/.onyankopon` に clone して `init.sh` を実行する
 
 ## 前提
@@ -37,6 +38,7 @@ curl -fsSL https://raw.githubusercontent.com/m4kvn/onyankopon-bootstrap/main/boo
 - Apple Silicon の macOS。
 - 1Password の Personal vault に GitHub 用の鍵が「SSH Key」カテゴリのアイテムとして保存され、その公開鍵が GitHub アカウントに登録されていること。
 - `bootstrap.sh` の `GITHUB_SSH_KEY_REF` が鍵アイテムを指していること（既定は Personal の `m4kvn_github`）。Item ID は次で確認する。フィールドはラベルではなく ID `private_key` で参照する（ラベルは UI 言語で変わる）。
+- pixiv 用の鍵も同じ vault に SSH Key アイテムとして入れてあり、`EXTRA_SSH_KEYS` の既定値がその Item ID を指す。既存の鍵は 1Password.app の「新規アイテム → SSH キー → 秘密鍵を追加 → キーファイルをインポート」で取り込む（CLI の `op item create` は新規生成のみ）。
 
 ```sh
 op item list --categories "SSH Key"

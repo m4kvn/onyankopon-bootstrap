@@ -22,7 +22,7 @@
 #   3. 1Password CLI (op)。Service Account でなければ 1Password.app も入れる
 #   4. 1Password へのサインインを待つ（人が 1Password.app にサインインし「1Password CLI と連携」を ON にする。
 #      確認は op vault get。アプリ連携では op whoami が通らないことがある）
-#   5. 1Password の SSH Key アイテムから GitHub 用の鍵を ~/.ssh に書き出し、~/.ssh/config と known_hosts を整える
+#   5. 1Password の SSH Key アイテムから GitHub 用の鍵（必須）と pixiv 用の鍵（任意）を ~/.ssh に書き出し、~/.ssh/config と known_hosts を整える
 #   6. onyankopon を ~/.onyankopon に clone して init.sh を実行する
 #
 # 方針:
@@ -44,6 +44,11 @@ TAG="[onyankopon-bootstrap]"
 OP_VAULT_ID="${OP_VAULT_ID:-4dhtkh2u5pwkkhncatoppqjupm}"   # Personal。サインイン確認にも使う
 GITHUB_SSH_KEY_REF="${GITHUB_SSH_KEY_REF:-op://$OP_VAULT_ID/dvfwispadkar7hpkg7lbnqj5om/private_key?ssh-format=openssh}"
 GITHUB_SSH_KEY_PATH="${GITHUB_SSH_KEY_PATH:-$HOME/.ssh/m4kvn_github}"   # onyankopon の ~/.ssh/config が指す場所に合わせる
+# GitHub 用以外に書き出す鍵。"<書き出し先>=<op:// 参照>" を空白区切りで並べる（onyankopon の ~/.ssh/config が IdentityFile で指す場所）。
+#   makun_gitlab_pixiv (ed25519): gitlab.tanuking.dev 用   google_compute_engine (RSA): bastion の OS Login 用
+#   無くても onyankopon の clone はできるので、読めない環境（Service Account での検証など）では警告して飛ばす。
+#   EXTRA_SSH_KEYS="" と空にすると書き出さない。
+EXTRA_SSH_KEYS="${EXTRA_SSH_KEYS-$HOME/.ssh/makun_gitlab_pixiv=op://$OP_VAULT_ID/rpljca6myih734ye6dgjyj4g3a/private_key?ssh-format=openssh $HOME/.ssh/google_compute_engine=op://$OP_VAULT_ID/xslobovenk2qwgtwpre3pj3qqy/private_key?ssh-format=openssh}"
 ONYANKOPON_REPO="git@github.com:m4kvn/onyankopon.git"
 ONYANKOPON_ROOT="$HOME/.onyankopon"
 SIGNIN_TIMEOUT_SEC="${SIGNIN_TIMEOUT_SEC:-1800}"   # サインイン待ちの上限（既定 30 分）
@@ -158,31 +163,46 @@ MSG
 # ---------------------------------------------------------------------------
 # 5. GitHub 用 SSH 鍵と ssh 設定
 # ---------------------------------------------------------------------------
+# write_ssh_key <書き出し先> <op:// 参照>: 1Password の SSH Key アイテムから秘密鍵を 600 で書き出し、公開鍵も並べる。
+# 既にあれば触らない。失敗理由は stderr に出して非 0 を返す（止めるかどうかは呼び出し側が決める）。
+write_ssh_key() {
+    local path="$1" ref="$2" pub="$1.pub" tmp=""
+    if [ -f "$path" ]; then
+        log "SSH 鍵: $path は既にあります（維持）"
+        return 0
+    fi
+    case "$ref" in
+        *__*_ITEM_ID__*) warn "$path の Item ID が未設定です。\`op item list --categories \"SSH Key\"\` で確認し、このファイルの既定値か環境変数に設定してください"; return 1 ;;
+    esac
+    log "SSH 鍵を 1Password から書き出します: $path"
+    tmp="$(mktemp "$HOME/.ssh/.bootstrap.XXXXXX")" || { warn "一時ファイルを作れません"; return 1; }
+    chmod 600 "$tmp"
+    if ! op read --no-newline "$ref" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
+        warn "op read に失敗しました: ${ref}（Vault の権限とアイテムの Item ID を確認してください）"
+        return 1
+    fi
+    printf '\n' >> "$tmp"
+    if ! ssh-keygen -y -f "$tmp" > "$pub.tmp" 2>/dev/null; then
+        rm -f "$tmp" "$pub.tmp"
+        warn "取り出した内容が SSH 秘密鍵として読めません: $path（アイテムの種類（SSH Key）とフィールド名を確認してください）"
+        return 1
+    fi
+    mv "$tmp" "$path" && mv "$pub.tmp" "$pub" && chmod 644 "$pub"
+    log "SSH 鍵: 配置しました: $path"
+}
+
 step_ssh_key() {
-    local pub="$GITHUB_SSH_KEY_PATH.pub" tmp=""
+    local entry=""
     mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
 
-    if [ -f "$GITHUB_SSH_KEY_PATH" ]; then
-        log "SSH 鍵: $GITHUB_SSH_KEY_PATH は既にあります（維持）"
-    else
-        case "$GITHUB_SSH_KEY_REF" in
-            *__ITEM_ID__*) die "GITHUB_SSH_KEY_REF の Item ID が未設定です。\`op item list --categories \"SSH Key\"\` で確認し、環境変数 GITHUB_SSH_KEY_REF かこのファイルの既定値に設定してください" ;;
-        esac
-        log "SSH 鍵を 1Password から書き出します: $GITHUB_SSH_KEY_PATH"
-        tmp="$(mktemp "$HOME/.ssh/.bootstrap.XXXXXX")" || die "一時ファイルを作れません"
-        chmod 600 "$tmp"
-        if ! op read --no-newline "$GITHUB_SSH_KEY_REF" > "$tmp" 2>/dev/null || [ ! -s "$tmp" ]; then
-            rm -f "$tmp"
-            die "op read に失敗しました: ${GITHUB_SSH_KEY_REF}（Vault の権限とアイテムの Item ID を確認してください）"
-        fi
-        printf '\n' >> "$tmp"
-        if ! ssh-keygen -y -f "$tmp" > "$pub.tmp" 2>/dev/null; then
-            rm -f "$tmp" "$pub.tmp"
-            die "取り出した内容が SSH 秘密鍵として読めません。アイテムの種類（SSH Key）とフィールド名を確認してください"
-        fi
-        mv "$tmp" "$GITHUB_SSH_KEY_PATH" && mv "$pub.tmp" "$pub" && chmod 644 "$pub"
-        log "SSH 鍵: 配置しました"
-    fi
+    # GitHub 用: onyankopon の clone に必須なので失敗したら止める
+    write_ssh_key "$GITHUB_SSH_KEY_PATH" "$GITHUB_SSH_KEY_REF" || die "GitHub 用の SSH 鍵を用意できませんでした"
+
+    # pixiv 用など: 無くても先へ進める。読めない環境では警告だけ残す
+    for entry in $EXTRA_SSH_KEYS; do
+        write_ssh_key "${entry%%=*}" "${entry#*=}" || warn "${entry%%=*} は書き出せませんでした。後で 1Password から手で置くか、再実行してください"
+    done
 
     # ~/.ssh/config: github.com の Host が無いときだけ追記する（既存の設定は触らない）
     if ! grep -qE '^\s*Host\s+github\.com(\s|$)' "$HOME/.ssh/config" 2>/dev/null; then
